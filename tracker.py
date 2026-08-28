@@ -1,8 +1,9 @@
 import os
 import requests
 from bs4 import BeautifulSoup
+from datetime import datetime
 
-# The exact URLs for your curated list of labs
+# The absolute, uncompromised list of your 8 target labs
 LABS = {
     "OpenAI Emerging Talent": "https://openai.com",
     "Anthropic Careers": "https://www.anthropic.com/careers",
@@ -17,20 +18,43 @@ LABS = {
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK")
 
 def check_job_boards():
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    
+    # Automatically calculates the upcoming internship years based on the current date
+    current_year = datetime.now().year
+    target_year_1 = str(current_year + 1)  # e.g., "2027"
+    target_year_2 = str(current_year + 2)  # e.g., "2028"
+    
+    # Highly specific phrases that only appear when an active application portal drops
+    strict_keywords = [
+        f"summer {target_year_1}", f"{target_year_1} intern", f"internship {target_year_1}",
+        f"summer {target_year_2}", f"{target_year_2} intern", f"internship {target_year_2}",
+        "engineering intern", "research intern", "research fellow"
+    ]
     
     for lab, url in LABS.items():
         try:
-            response = requests.get(url, headers=headers, timeout=15)
+            response = requests.get(url, headers=headers, timeout=20)
             soup = BeautifulSoup(response.text, 'html.parser')
-            page_text = soup.get_text().lower()
             
-            # Smart keywords targeting the Summer 2028 cycle
-            if "intern" in page_text or "2028" in page_text or "fellow" in page_text:
-                message = f"🚨 **ALERT:** Potential Summer 2028/Intern opening detected at **{lab}**!\n🔗 Check immediate listings here: {url}"
-                payload = {"content": message}
-                requests.post(DISCORD_WEBHOOK_URL, json=payload)
-                print(f"Match found for {lab}!")
+            # Scans clickable application links and bold headers where job roles are listed
+            job_elements = soup.find_all(['a', 'h2', 'h3', 'h4', 'span'])
+            
+            for element in job_elements:
+                element_text = element.get_text().strip().lower()
+                
+                # Verified Match: Ensure the keyword matches active structural job text
+                if any(keyword in element_text for keyword in strict_keywords):
+                    # Quick filter to drop generic background paragraphs
+                    if len(element_text) < 100: 
+                        message = f"🚀 **ACTIVE HIRING DETECTED:** New internship listing found at **{lab}**!\n🎯 Role Found: `{element.get_text().strip()}`\n🔗 Apply instantly here: {url}"
+                        payload = {"content": message}
+                        requests.post(DISCORD_WEBHOOK_URL, json=payload)
+                        print(f"Verified match found for {lab}: {element_text}")
+                        break # Prevents spamming multiple alerts for the same company in one run
+                        
         except Exception as e:
             print(f"Error checking {lab}: {e}")
 
